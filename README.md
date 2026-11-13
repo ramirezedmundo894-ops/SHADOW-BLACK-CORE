@@ -56,14 +56,15 @@ Ejecuta `cargo test` y `cargo build` dentro de `shadow-core-rust/`. El proxy est
 
 ## Estado real de esta rama
 
-Rama local `feat/real-api-jwt-play-integrity`; los cambios no se han publicado ni fusionado.
+Rama `feat/real-api-jwt-play-integrity`, publicada en GitHub en el commit `ab24126`; aún no tiene PR ni está fusionada. Los cambios posteriores de esta validación quedan locales hasta publicar una actualización aprobada.
 
 Implementado en el repositorio según el código de esta rama:
 
 - API Python/FastAPI y flujo de autenticación, scopes, access/refresh JWT rotativos y revocación de familia en persistencia local.
 - Endpoint de reto/verificación server-side para Google Play Integrity, pero los tests locales usan verificador falso; no acreditan una app Android, un dispositivo ni la integración real de Google.
 - FFT radix‑2 para el análisis de muestras y flujo de señales FFT → correlación transparente → política Go.
-- Servicio Go mínimo con contrato versionado y política determinista. PostgreSQL conserva la decisión y el outbox en transacción; Redis Streams transporta eventos versionados al menos una vez. Las pruebas de integración y una llamada end-to-end se ejecutaron contra instancias locales desechables PostgreSQL 15 y Redis 7; la configuración de Docker Compose existe, pero no se ejecutó aquí.
+- Servicio Go mínimo con contrato versionado y política determinista. PostgreSQL conserva la decisión y el outbox en transacción; Redis Streams transporta eventos versionados al menos una vez. Las pruebas de integración y una llamada end-to-end se ejecutaron contra instancias locales desechables de PostgreSQL y Redis. Además, `compose.yaml` se levantó localmente con PostgreSQL 16, Redis 7 y Go; los tres servicios quedaron saludables y `/health` respondió correctamente. Las pruebas Go de integración también pasaron contra esos servicios.
+El proxy Rust se probó en loopback frente a Go: health respondió `ok`, la ruta interna sin bearer fue rechazada con HTTP 401 y una solicitud autorizada pero malformada llegó a Go y fue rechazada con HTTP 400; esta comprobación no constituye una decisión de riesgo end-to-end.
 
 Aún no implementado o validado como sistema completo: Rust con TLS/operación de borde de producción, servicios Go adicionales/circuit breaker de producción, cliente Android/Kotlin, IA entrenada/calibrada, Redis/PostgreSQL con alta disponibilidad, honeypot aislado, CAPTCHA integrado a un flujo real, mTLS gRPC de extremo a extremo, despliegue GKE/GCP, staging, pentest externo y certificación/auditoría. No afirmar tasas de detección, cobertura, costo de bypass ni superioridad comercial a partir del material promocional anterior.
 
@@ -85,11 +86,11 @@ PYTHONPATH="$PWD" uv run --python 3.11 --no-project \
 (cd shadow-core-rust && cargo test && cargo build)
 ```
 
-Las pruebas de FFT usan señales sintéticas; no equivalen a detección validada en dispositivos o tráfico real. Las pruebas PostgreSQL/Redis de integración son optativas: usan solo los servicios indicados por variables `SHADOW_TEST_POSTGRES_DSN` y `SHADOW_TEST_REDIS_URL`; apuntarlas únicamente a una base/instancia desechable. Se ejecutaron aquí con un clúster temporal aislado de PostgreSQL 15 y Redis 7, más una prueba end-to-end del servicio Go. No se tocaron datos de usuario. Docker no está disponible en este entorno, por lo que `compose.yaml` se revisó como configuración, no se levantó ni se validó en ejecución.
+Las pruebas de FFT usan señales sintéticas; no equivalen a detección validada en dispositivos o tráfico real. Las pruebas PostgreSQL/Redis de integración son optativas: usan solo los servicios indicados por variables `SHADOW_TEST_POSTGRES_DSN` y `SHADOW_TEST_REDIS_URL`; apuntarlas únicamente a una base/instancia desechable. Se ejecutaron aquí con un clúster temporal aislado de PostgreSQL 15 y Redis 7, además del stack Compose local de PostgreSQL 16 y Redis 7 y una prueba end-to-end del servicio Go. No se usaron credenciales ni datos de producción.
 
 ### Rebanada local con PostgreSQL y Redis
 
-Docker Compose es la vía reproducible prevista. Requiere Docker Engine y el plugin `docker compose`; ambos no están disponibles en el entorno donde se hicieron estas pruebas. El archivo expone puertos solo en localhost y usa volúmenes locales; es para desarrollo, no producción.
+Docker Compose es la vía reproducible prevista. Requiere Docker Engine y `docker compose` (o el ejecutable compatible `docker-compose`). En este entorno se validó con Docker Engine y `docker-compose`. El archivo expone puertos solo en localhost y usa volúmenes locales; es para desarrollo, no producción.
 
 ```bash
 cp .env.example .env
@@ -97,14 +98,14 @@ cp .env.example .env
 docker compose -f compose.yaml up --build
 ```
 
-Compose inicia PostgreSQL, Redis y el servicio Go; la migración se aplica al arrancar Go. Para conectar una API Python ejecutada en el host, configura `SHADOW_GO_POLICY_URL=http://127.0.0.1:18081` y el mismo `SHADOW_GO_INTERNAL_TOKEN` de `.env`; la URL debe ser accesible solo por la API confiable. Se puede comprobar `/health` en `http://127.0.0.1:18081/health`. No se debe afirmar que esta composición corre hasta ejecutar y observar `docker compose up` en una máquina con Docker.
+Compose inicia PostgreSQL, Redis y el servicio Go; la migración se aplica al arrancar Go. Para conectar una API Python ejecutada en el host, configura `SHADOW_GO_POLICY_URL=http://127.0.0.1:18081` y el mismo `SHADOW_GO_INTERNAL_TOKEN` de `.env`; la URL debe ser accesible solo por la API confiable. Se puede comprobar `/health` en `http://127.0.0.1:18081/health`. En esta validación local, PostgreSQL, Redis y Go quedaron saludables y `/health` respondió `status: ok`; Go pasó sus pruebas de integración con PostgreSQL/Redis. Esto no valida alta disponibilidad ni despliegue productivo.
 
 El dispatcher es al menos una vez: si Redis acepta un evento y el proceso cae antes de marcarlo publicado en PostgreSQL, puede volver a aparecer en el stream. El evento conserva su `event_id`; consumidores deben aplicar idempotencia/deduplicación. Si PostgreSQL no está disponible, Go no entrega decisiones sensibles; si Redis no está disponible, responde con error y el evento persiste en outbox para reintento. Reintentar una misma petición requiere repetir la misma cabecera `Idempotency-Key` UUID; usar una clave con otro cuerpo devuelve conflicto.
 
 ## Hoja de ruta
 
-1. La migración, idempotencia, outbox, transporte y error cerrado ya pasaron pruebas locales con PostgreSQL/Redis desechables; falta validar `compose.yaml` con Docker disponible y ampliar pruebas de concurrencia/recuperación.
-2. Revisar y ampliar contratos Rust/Go/Python y modelo de amenazas; validar Compose con Docker disponible y sumar pruebas locales de integración reproducibles para el proxy.
+1. La migración, idempotencia, outbox, transporte y error cerrado pasaron pruebas locales con PostgreSQL/Redis; Compose también quedó levantado y probado en una máquina local. Ampliar pruebas de concurrencia, recuperación y reinicio de servicios.
+2. Revisar y ampliar contratos Rust/Go/Python y el modelo de amenazas; añadir pruebas de integración reproducibles que cubran el proxy Rust junto con el stack Compose.
 3. Construir cliente Android/Kotlin y validar atestación y señales en dispositivos/entorno de prueba autorizados.
 4. Evaluar FFT y modelos con corpus etiquetado, falsos positivos/negativos y revisión humana; entrenar/calibrar antes de usar IA para cualquier señal operacional. La política determinista sigue siendo autoridad.
 5. Revisar controles GCP/Kubernetes, IAM, KMS, Cloud Armor, VPC Service Controls y costos; desplegar solo tras revisión explícita y evidencia de staging.
