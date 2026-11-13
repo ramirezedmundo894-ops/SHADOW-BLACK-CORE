@@ -1,22 +1,39 @@
-resource "google_service_account" "sa_shadow_api" {
-  account_id   = "sa-shadow-api"
-  display_name = "Shadow Core API"
-}
+resource "google_compute_security_policy" "shadow_armor" {
+  name = "shadow-core-armor"
 
-resource "google_project_iam_member" "api_vertex" {
-  project = var.project_id
-  role    = "roles/aiplatform.user"
-  member  = "serviceAccount:${google_service_account.sa_shadow_api.email}"
-}
+  rule {
+    action   = "rate_based_ban"
+    priority = 100
+    match {
+      versioned_expr = "SRC_IPS_V1"
+      config { src_ip_ranges = ["*"] }
+    }
+    rate_limit_options {
+      conform_action = "allow"
+      exceed_action  = "deny(429)"
+      enforce_on_key = "IP"
+      rate_limit_threshold {
+        count        = 100
+        interval_sec = 60
+      }
+    }
+  }
 
-resource "google_project_iam_member" "api_kms_encrypt" {
-  project = var.project_id
-  role    = "roles/cloudkms.signerVerifier"
-  member  = "serviceAccount:${google_service_account.sa_shadow_api.email}"
-}
+  rule {
+    action   = "deny(403)"
+    priority = 200
+    match {
+      expr { expression = "origin.region_code != 'MX' && origin.region_code != 'US'" }
+    }
+    description = "Restrict to MX and US only if this matches your business requirements."
+  }
 
-resource "google_project_iam_member" "auditor_bq" {
-  project = var.project_id
-  role    = "roles/bigquery.dataViewer"
-  member  = "group:auditoria@shadowcore.dev"
+  rule {
+    action   = "allow"
+    priority = 2147483647
+    match {
+      versioned_expr = "SRC_IPS_V1"
+      config { src_ip_ranges = ["*"] }
+    }
+  }
 }

@@ -1,15 +1,14 @@
-terraform {
-  required_version = ">= 1.5.0"
-
-  required_providers {
-    google = {
-      source  = "hashicorp/google"
-      version = "~> 5.0"
-    }
-  }
+variable "project_id" {
+  type        = string
+  description = "Existing GCP project ID. Set explicitly for your environment."
 }
 
-provider "google" {
-  project = var.project_id
-  region  = var.region
+variable "region" {
+  type    = string
+  default = "us-central1"
+}
+
+variable "org_id" {
+  type        = string
+  description = "GCP organization ID; required only for the Access Context Manager policy."
 }

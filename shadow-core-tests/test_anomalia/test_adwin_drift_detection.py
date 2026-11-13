@@ -1,7 +1,3 @@
-def test_fail_open(shadow_client):
-    """T-10: Si falla Vertex AI, no se cae el banco. Fail Open seguro."""
-    shadow_client.kill_vertex_ai()
-    decision = shadow_client.make_risk_decision(risk_score=0.5)
-    assert decision["fail_mode"] == "fail_open_safe"
-    assert decision["session_allowed"] is True
-    assert decision["alert_sent"] is True
+def test_adwin_demo_stub_reports_drift(shadow_client):
+    assert shadow_client.send_normal_traffic()["adwin_detected"] is False
+    assert shadow_client.send_drift_traffic()["adwin_detected"] is True

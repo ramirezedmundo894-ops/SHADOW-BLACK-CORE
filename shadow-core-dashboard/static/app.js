@@ -1,29 +1,22 @@
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8" />
-  <title>SHADOW CORE - Dashboard CISO</title>
-  <style>
-    body { background:#000; color:#fff; font-family:monospace; padding: 20px; }
-    .card { border:1px solid #333; padding:12px; margin:5px 0; }
-  </style>
-</head>
-<body>
-  <h1>SHADOW CORE · SDK de Defensa Matemática</h1>
-  <p>248 tests · 94.2% cobertura · Última corrida hace 12 min</p>
+async function load() {
+  const [dashboardResponse, economicsResponse] = await Promise.all([
+    fetch('/api/dashboard'), fetch('/api/economia-ataque')
+  ]);
+  if (!dashboardResponse.ok || !economicsResponse.ok) throw new Error('Dashboard API request failed');
+  const data = await dashboardResponse.json();
+  const economics = await economicsResponse.json();
+  document.getElementById('stats').textContent = `Estado: ${data.status} · Tests registrados: ${data.total} · Cobertura: no configurada`;
+  document.getElementById('tests').textContent = data.tests.length ? JSON.stringify(data.tests) : 'Sin resultados reales configurados.';
+  document.getElementById('economia').textContent = economics.message;
+}
 
-  <div id="stats" class="card"></div>
-  <h2>ECONOMÍA DEL ATAQUE - LIVE MODEL</h2>
-  <div id="economia" class="card"></div>
+document.getElementById('save').addEventListener('click', async () => {
+  const response = await fetch('/api/accion-mejora', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action: document.getElementById('accion').value, test: document.getElementById('test_rel').value})
+  });
+  const result = await response.json();
+  alert(result.status === 'received_demo_only' ? 'Recibido en modo demo; no se guardó.' : 'No se pudo enviar.');
+});
 
-  <h2>02 · DASHBOARD DE AUDITORÍA - Pytest</h2>
-  <div id="tests"></div>
-
-  <h2>03 · ACCIONES DE MEJORA</h2>
-  <input id="accion" placeholder="Ej: Endurecer regla PoMP bajo latencia alta" style="display:block; margin:5px 0; width: 100%;" />
-  <input id="test_rel" placeholder="test_pomp_policy_enforcement" style="display:block; margin:5px 0; width: 100%;" />
-  <button onclick="guardar()">Guardar acción</button>
-
-  <script src="/app.js"></script>
-</body>
-</html>
+load().catch(error => { document.getElementById('stats').textContent = error.message; });

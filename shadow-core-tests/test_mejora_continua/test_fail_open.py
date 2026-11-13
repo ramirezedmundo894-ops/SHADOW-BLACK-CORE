@@ -1,10 +1,6 @@
-def test_redis_stream_replay(shadow_client):
-    """T-12: Redis Streams debe poder reproducir toda la evidencia."""
-    for i in range(100):
-        shadow_client.publish_event(f"evento_{i}")
-
-    replay = shadow_client.replay_stream(from_id="0")
-
-    assert len(replay) == 100
-    assert replay[0]["id"] == "evento_0"
-    assert replay[-1]["id"] == "evento_99"
+def test_vertex_failure_uses_documented_demo_fallback(shadow_client):
+    shadow_client.kill_vertex_ai()
+    decision = shadow_client.make_risk_decision(risk_score=0.5)
+    assert decision["fail_mode"] == "fail_open_safe"
+    assert decision["session_allowed"] is True
+    assert decision["alert_sent"] is True

@@ -1,81 +1,21 @@
-from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
-import hashlib
-
-try:
-    from google.cloud import bigquery
-except Exception:  # pragma: no cover
-    bigquery = None
-
-app = FastAPI(title="SHADOW CORE - Dashboard CISO")
-
-TESTS = [
-    {"id": "T-01", "name": "test_frida_hook_detection", "area": "Anti-Frida", "status": "PASSED", "time": 1.84, "sha": "9f2a…c41e"},
-    {"id": "T-02", "name": "test_magisk_zygisk_detection", "area": "Anti-Root", "status": "PASSED", "time": 2.31, "sha": "71bd…90f2"},
-    {"id": "T-03", "name": "test_gtm_container_merkle", "area": "Integridad", "status": "PASSED", "time": 0.96, "sha": "aa08…3d77"},
-    {"id": "T-04", "name": "test_jwt_rotation_under_attack", "area": "Sesión", "status": "PASSED", "time": 3.12, "sha": "5c19…e8b4"},
-    {"id": "T-05", "name": "test_merkle_tree_integrity", "area": "Integridad", "status": "PASSED", "time": 0.74, "sha": "d3f0…61aa"},
-    {"id": "T-06", "name": "test_adwin_drift_detection", "area": "Anomalía", "status": "PASSED", "time": 1.47, "sha": "28ce…b09d"},
-    {"id": "T-07", "name": "test_fourier_beaconing", "area": "Anomalía", "status": "PASSED", "time": 1.12, "sha": "84a1…f2c6"},
-    {"id": "T-08", "name": "test_markov_sequence_anomaly", "area": "Anomalía", "status": "PASSED", "time": 1.68, "sha": "17e5…94bd"},
-    {"id": "T-09", "name": "test_grpc_encryption", "area": "Cifrado", "status": "PASSED", "time": 0.88, "sha": "be42…07f1"},
-    {"id": "T-10", "name": "test_fail_open", "area": "Resiliencia", "status": "PASSED", "time": 0.52, "sha": "60d9…a3e8"},
-    {"id": "T-11", "name": "test_pomp_policy_enforcement", "area": "Política", "status": "FAILED", "time": 2.05, "sha": "91ab…44cd"},
-    {"id": "T-12", "name": "test_redis_stream_replay", "area": "Resiliencia", "status": "FAILED", "time": 1.96, "sha": "33f7…d18a"},
-]
-
-
-@app.get("/")
-def read_root() -> HTMLResponse:
-    with open("static/index.html", "r", encoding="utf-8") as fh:
-        return HTMLResponse(content=fh.read())
-
-
-@app.get("/api/dashboard")
-def dashboard():
-    total = len(TESTS)
-    pasados = len([t for t in TESTS if t["status"] == "PASSED"])
-    cobertura = 94.2
-    tiempo_medio = sum(t["time"] for t in TESTS) / total
-    merkle_input = "".join([t["sha"] for t in TESTS])
-    merkle_root = hashlib.sha256(merkle_input.encode()).hexdigest()[:16]
-
-    return {
-        "total": total,
-        "pasados": pasados,
-        "en_mejora": total - pasados,
-        "cobertura": cobertura,
-        "tiempo_medio": round(tiempo_medio, 2),
-        "merkle_root": merkle_root,
-        "ultima_corrida": "hace 12 min",
-        "tests": TESTS,
-        "costo_bypass": 4200,
-        "principio": "Un sistema no se mide por cuánto dura de pie, sino por cuánto tardas en recuperarte.",
-    }
-
-
-@app.get("/api/economia-ataque")
-def economia():
-    return {
-        "shadow_core": 4200,
-        "guardsquare": 1200,
-        "promon": 800,
-        "rootbeer": 50,
-        "multiplicador": 84,
-        "mensaje": "Cuando bypassear cuesta 84x más, el atacante racional cambia de objetivo.",
-    }
-
-
-@app.post("/api/accion-mejora")
-def guardar_accion(accion: dict):
-    if bigquery is not None:
-        client = bigquery.Client()
-        table = "shadow-core-prod.dataset_evidence.acciones_mejora"
-        client.insert_rows_json(table, [accion])
-        return {"status": "guardada", "accion": accion}
-    return {"status": "simulada", "accion": accion}
-
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8080)
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SHADOW CORE · Demo de auditoría</title>
+  <style>body{background:#000;color:#fff;font-family:monospace;padding:1.5rem}.card{border:1px solid #444;padding:1rem;margin:.5rem 0}input{display:block;margin:.5rem 0;width:min(100%,36rem);padding:.5rem}</style>
+</head>
+<body>
+  <h1>SHADOW CORE · Demo de auditoría</h1>
+  <p>Este prototipo no contiene telemetría de producción ni resultados de pruebas verificados.</p>
+  <div id="stats" class="card">Cargando…</div>
+  <h2>Resultados de pruebas</h2><div id="tests"></div>
+  <h2>Datos económicos</h2><div id="economia" class="card"></div>
+  <h2>Registrar acción (demo, no persistida)</h2>
+  <input id="accion" maxlength="500" placeholder="Acción de mejora" />
+  <input id="test_rel" maxlength="200" placeholder="Prueba relacionada" />
+  <button id="save">Enviar</button>
+  <script src="/app.js" defer></script>
+</body>
+</html>

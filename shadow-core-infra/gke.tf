@@ -1,45 +1,15 @@
-resource "google_compute_security_policy" "shadow_armor" {
-  name = "shadow-core-armor"
+resource "google_container_cluster" "shadow_gke" {
+  name                = "shadow-core-gke"
+  location            = var.region
+  enable_autopilot    = true
+  deletion_protection = true
+  network             = google_compute_network.vpc_shadow_prod.name
+  subnetwork          = google_compute_subnetwork.subnet_gke.name
 
-  rule {
-    action   = "rate_based_ban"
-    priority = 100
-    match {
-      versioned_expr = "SRC_IPS_V1"
-      config {
-        src_ip_ranges = ["*"]
-      }
-    }
-    rate_limit_options {
-      conform_action = "allow"
-      exceed_action  = "deny(429)"
-      enforce_on_key = "IP"
-      rate_limit_threshold {
-        count        = 100
-        interval_sec = 60
-      }
-    }
-  }
+  ip_allocation_policy {}
 
-  rule {
-    action   = "deny(403)"
-    priority = 200
-    match {
-      expr {
-        expression = "origin.region_code != 'MX' && origin.region_code != 'US'"
-      }
-    }
-    description = "Shadow Core: Solo MX y US"
-  }
-
-  rule {
-    action   = "allow"
-    priority = 2147483647
-    match {
-      versioned_expr = "SRC_IPS_V1"
-      config {
-        src_ip_ranges = ["*"]
-      }
-    }
+  private_cluster_config {
+    enable_private_nodes    = true
+    master_ipv4_cidr_block = "172.16.0.0/28"
   }
 }

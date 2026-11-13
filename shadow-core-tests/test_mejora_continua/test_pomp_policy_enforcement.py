@@ -1,6 +1,9 @@
-def test_grpc_encryption(shadow_client):
-    """T-09: Intenta interceptar gRPC sin cifrado."""
-    ataque = shadow_client.try_intercept_grpc()
-    assert ataque["intercepted"] is False
-    assert ataque["tls_verified"] is True
-    assert ataque["mutual_tls"] is True
+def test_pomp_policy_evidence_shape(shadow_client, evidencia):
+    decision = shadow_client.make_risk_decision(risk_score=0.95)
+    assert decision["pomp_proof"]
+    assert decision["merkle_root"]
+    assert decision["evidence_hash"]
+    assert decision["auditable"]
+    digest = evidencia(str(decision))
+    assert len(digest) == 64
+    shadow_client.save_improvement_action("policy-demo", digest, "PASSED")

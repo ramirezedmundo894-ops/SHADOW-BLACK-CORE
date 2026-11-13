@@ -1,26 +1,22 @@
-resource "google_kms_key_ring" "kr_shadow" {
-  name     = "kr-shadow-core"
-  location = var.region
+resource "google_service_account" "sa_shadow_api" {
+  account_id   = "sa-shadow-api"
+  display_name = "Shadow Core API"
 }
 
-resource "google_kms_crypto_key" "key_merkle" {
-  name            = "key-merkle-root"
-  key_ring        = google_kms_key_ring.kr_shadow.id
-  rotation_period = "7776000s"
-  purpose         = "ASYMMETRIC_SIGN"
-
-  version_template {
-    algorithm = "EC_SIGN_P256_SHA256"
-  }
+resource "google_project_iam_member" "api_vertex" {
+  project = var.project_id
+  role    = "roles/aiplatform.user"
+  member  = "serviceAccount:${google_service_account.sa_shadow_api.email}"
 }
 
-resource "google_kms_crypto_key" "key_jwt" {
-  name            = "key-jwt-signing"
-  key_ring        = google_kms_key_ring.kr_shadow.id
-  rotation_period = "7776000s"
-  purpose         = "ASYMMETRIC_SIGN"
+resource "google_project_iam_member" "api_kms_signer" {
+  project = var.project_id
+  role    = "roles/cloudkms.signerVerifier"
+  member  = "serviceAccount:${google_service_account.sa_shadow_api.email}"
+}
 
-  version_template {
-    algorithm = "EC_SIGN_P256_SHA256"
-  }
+resource "google_project_iam_member" "auditor_bq" {
+  project = var.project_id
+  role    = "roles/bigquery.dataViewer"
+  member  = "group:auditoria@shadowcore.dev"
 }
