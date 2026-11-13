@@ -1,0 +1,44 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local secrets and env
+.env
+.env.*
+*.pem
+*.key
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+
+# Terraform
+**/.terraform/
+**/*.tfstate
+**/*.tfstate.*
+crash.log
+
+# Test reports
+pytest_cache/
+.htmlcov/
+*.html
+
+# Jupyter
+.ipynb_checkpoints/
