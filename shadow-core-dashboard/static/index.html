@@ -8,6 +8,11 @@
 <body>
   <h1>SHADOW CORE · Panel de evaluación</h1>
   <p>MVP local. Las señales las proporciona el cliente; el servicio no detecta Frida/root ni verifica TLS en el dispositivo.</p>
+  <h2>Sesión del panel</h2>
+  <p>Usa un access JWT emitido por un autenticador confiable. Se conserva solo en memoria durante esta pestaña; no pegues aquí el secreto del emisor.</p>
+  <label>Access JWT <input id="access-token-input" type="password" autocomplete="off" spellcheck="false"></label>
+  <button id="use-token" type="button">Usar token en esta pestaña</button>
+  <button id="clear-token" type="button">Olvidar token</button>
   <h2>Evaluar señales reportadas</h2>
   <form id="decision-form">
     <label><input type="checkbox" name="frida_detected"> Señal de Frida reportada</label>

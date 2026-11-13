@@ -1,50 +1,116 @@
-# SHADOW BLACK CORE
+# SHADOW CORE
 
-Proyecto de ciberseguridad en desarrollo. Este repositorio contiene un MVP local ejecutable: una política de riesgo determinista, una API FastAPI, un panel web sencillo y un registro SQLite encadenado por hashes.
+Defensa de riesgo para apps móviles bancarias: combinar análisis matemático, señales del servidor y políticas auditables para decidir si una operación se permite, se limita, requiere un reto o se rechaza. Es un proyecto en desarrollo y un prototipo local; no es un SDK bancario listo para producción ni una evaluación independiente de seguridad.
 
-## Funcionalidad implementada
+## Arquitectura y flujo
 
-- `POST /api/decision`: valida señales estructuradas, aplica reglas explícitas en `shadow_core/policy.py` y registra la decisión.
-- `GET /api/evidence`: lista evidencia persistida.
-- `GET /api/evidence/verify`: recalcula la cadena hash y detecta cambios en las entradas retenidas.
-- `POST /api/improvement-actions`: valida y registra una acción de mejora.
-- Panel web local para usar estos endpoints.
-
-Las señales de integridad las aporta quien llama a la API. El proyecto **no** detecta Frida, Magisk/root ni verifica realmente TLS en el dispositivo; tampoco emite/revoca JWT, llama a Vertex AI, ni protege transacciones bancarias. Los umbrales son demostrativos y no están calibrados para producción.
-
-## Ejecutar localmente
-
-Requiere Python 3.10+.
-
-```bash
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\\Scripts\\activate
-python -m pip install -r requirements.txt
-PYTHONPATH=.:shadow-core-dashboard uvicorn main:app --app-dir shadow-core-dashboard --host 127.0.0.1 --port 8080
+```text
+Cliente móvil (Android pendiente)
+  → proxy Rust local (allowlist/rate limit; Cloud Armor queda para GCP)
+  → API Python/FastAPI: autenticación, validación y FFT
+  → servicio Go: política determinista y TTL
+  → PostgreSQL: decisión durable + outbox transaccional
+  → Redis Streams: transporte de eventos versionados
 ```
 
-Abre `http://127.0.0.1:8080/`. El ejemplo solo escucha en localhost. SQLite se guarda por defecto en `./data/shadow-core.sqlite3`; `SHADOW_CORE_DB` permite elegir otra ruta. No uses SQLite local como almacenamiento compartido en varias réplicas ni en un contenedor efímero.
+1. La API valida la identidad/scope y el formato de las señales. Los datos declarados por el cliente no se consideran una raíz de confianza.
+2. Para beaconing, FFT/Fourier rápida es el primer detector matemático: analiza muestras uniformes y devuelve una señal interpretable. Esta rama incluye una FFT radix‑2 y pruebas con muestras sintéticas.
+3. Un prototipo transparente de correlación combina señales después de FFT. No está entrenado ni calibrado, no produce una probabilidad fiable y no tiene autoridad para decidir.
+4. El servicio Go evalúa su política determinista versionada. Es la autoridad de decisión del flujo integrado. Las señales/correlación se registran para explicar el resultado; no sustituyen la política.
+5. Go guarda decisión y evento pendiente en PostgreSQL en una transacción. Un dispatcher publica en Redis Streams desde el outbox. El outbox es fuente durable; Redis es transporte al menos una vez, por lo que consumidores deben deduplicar por `event_id`.
 
-## API
+## Responsabilidad por tecnología
+
+- Python/FastAPI: API y scopes; sesiones JWT/refresh del prototipo; endpoint FFT; correlación transparente; cliente opcional del servicio Go. La evidencia y otros datos locales preexistentes aún pueden usar SQLite; no usar ese SQLite como almacén compartido entre réplicas.
+- Go: contrato `shadow.risk.v1`, puntuación/reglas deterministas y respuesta de riesgo; persistencia de decisiones/outbox en PostgreSQL y publicación a Redis Streams.
+- Rust: proxy HTTP local con allowlist exacta, request-id, límites de cuerpo/tasa, saneamiento de headers y backends configurables. Cloud Armor sigue siendo una capa GCP pendiente.
+- Android/Kotlin: cliente, integración de señales/atestación y pruebas de dispositivo pendientes.
+- GCP/Kubernetes: Cloud Armor, IAM/Workload Identity, Cloud KMS, VPC Service Controls, Network Policies y despliegue GKE son etapas posteriores; el scaffold de infraestructura no equivale a configuración revisada o desplegable.
+
+## Contrato de sesión
+
+El access JWT dura 900 segundos (15 minutos) en riesgo normal y se reduce a 20 segundos cuando la política eleva el riesgo. El modo alto riesgo se asocia a la familia de refresh; los refresh tokens son de un solo uso y la reutilización revoca esa familia. El recorte a 20 segundos limita vigencia: **no es una reautenticación ni un step-up**. El prototipo no afirma validar un segundo factor. JWT/refresh del servidor siguen siendo una implementación local; una base SQLite no sirve como estado compartido multi-réplica.
+
+### Proxy inverso Rust (desarrollo local)
+
+`shadow-core-rust/` contiene un proxy HTTP mínimo. Por defecto escucha solo en `127.0.0.1:8080`; el `GET /health` es local y no depende de backends. Las demás rutas deben coincidir exactamente con el método y la ruta permitidos: `POST /api/auth/token`, `/api/auth/refresh`, `/api/auth/revoke`, `/api/attestation/challenges`, `/api/attestation/verify`, `/api/decision`, `/api/analysis/beaconing`, `/api/improvement-actions`; `GET /api/evidence` y `/api/evidence/verify`. No hay ruta catch-all. `POST /internal/v1/decision` solo se añade al allowlist si se configura el upstream Go y exige bearer token del proxy.
+
+El proxy genera `X-Shadow-Request-Id`, reemplaza `X-Real-IP`, y solo reenvía un conjunto pequeño de headers, incluidos `Authorization` e `Idempotency-Key`; descarta headers de identidad internos y `X-Forwarded-For` enviados por el cliente. `X-Real-IP` entrante se considera únicamente cuando el socket remoto coincide con una IP listada exactamente en `SHADOW_TRUSTED_PROXIES`; por defecto la lista está vacía. No se admiten CIDR ni cadenas de proxies. El limitador es ventana fija, en memoria y por IP efectiva, no sincronizado entre procesos.
+
+Variables de entorno:
+
+| Variable | Predeterminado | Uso |
+| --- | --- | --- |
+| `SHADOW_PROXY_ADDR` | `127.0.0.1:8080` | Dirección local de escucha. |
+| `SHADOW_PYTHON_UPSTREAM` | `http://127.0.0.1:8000` | Upstream HTTP Python; solo host y puerto, sin path. |
+| `SHADOW_GO_UPSTREAM` | vacío | Upstream Go opcional; habilita la ruta interna. |
+| `SHADOW_GO_PROXY_TOKEN` | vacío | Bearer requerido por el proxy en la ruta Go interna. |
+| `SHADOW_GO_INTERNAL_TOKEN` | vacío | Token que el proxy agrega como header interno al llamar Go; requerido junto al upstream Go. |
+| `SHADOW_TRUSTED_PROXIES` | vacío | Lista CSV de IP exactas cuyos `X-Real-IP` se confían. |
+| `SHADOW_MAX_BODY_BYTES` | `1048576` | Máximo del cuerpo entrante y respuesta upstream en bytes. |
+| `SHADOW_RATE_LIMIT_REQUESTS` | `120` | Solicitudes por IP y ventana fija. |
+| `SHADOW_RATE_LIMIT_WINDOW_SECONDS` | `60` | Duración de ventana. |
+| `SHADOW_RATE_LIMIT_MAX_CLIENTS` | `20000` | Tope de IPs en memoria. |
+
+Ejecuta `cargo test` y `cargo build` dentro de `shadow-core-rust/`. El proxy está pensado para loopback/desarrollo: HTTP sin TLS, rate limit local no distribuido, sin mTLS, observabilidad/rotación de claves ni pruebas de carga. No lo expongas directamente a Internet ni lo presentes como proxy endurecido para producción; primero requiere revisión de seguridad, TLS en un borde confiable, políticas de red y pruebas operacionales.
+
+## Estado real de esta rama
+
+Rama `feat/real-api-jwt-play-integrity`, publicada en GitHub en el commit `ab24126`; aún no tiene PR ni está fusionada. Los cambios posteriores de esta validación quedan locales hasta publicar una actualización aprobada.
+
+Implementado en el repositorio según el código de esta rama:
+
+- API Python/FastAPI y flujo de autenticación, scopes, access/refresh JWT rotativos y revocación de familia en persistencia local.
+- Endpoint de reto/verificación server-side para Google Play Integrity, pero los tests locales usan verificador falso; no acreditan una app Android, un dispositivo ni la integración real de Google.
+- FFT radix‑2 para el análisis de muestras y flujo de señales FFT → correlación transparente → política Go.
+- Servicio Go mínimo con contrato versionado y política determinista. PostgreSQL conserva la decisión y el outbox en transacción; Redis Streams transporta eventos versionados al menos una vez. Las pruebas de integración y una llamada end-to-end se ejecutaron contra instancias locales desechables de PostgreSQL y Redis. Además, `compose.yaml` se levantó localmente con PostgreSQL 16, Redis 7 y Go; los tres servicios quedaron saludables y `/health` respondió correctamente. Las pruebas Go de integración también pasaron contra esos servicios.
+El proxy Rust se probó en loopback frente a Go: health respondió `ok`, la ruta interna sin bearer fue rechazada con HTTP 401 y una solicitud autorizada pero malformada llegó a Go y fue rechazada con HTTP 400; esta comprobación no constituye una decisión de riesgo end-to-end.
+
+Aún no implementado o validado como sistema completo: Rust con TLS/operación de borde de producción, servicios Go adicionales/circuit breaker de producción, cliente Android/Kotlin, IA entrenada/calibrada, Redis/PostgreSQL con alta disponibilidad, honeypot aislado, CAPTCHA integrado a un flujo real, mTLS gRPC de extremo a extremo, despliegue GKE/GCP, staging, pentest externo y certificación/auditoría. No afirmar tasas de detección, cobertura, costo de bypass ni superioridad comercial a partir del material promocional anterior.
+
+La comparación funcional prudente de soluciones públicas está en [`COMPARATIVA_COMERCIAL.md`](COMPARATIVA_COMERCIAL.md); sus claims no se presentan como ensayos propios.
+
+## Desarrollo y pruebas
+
+Requisitos: Python 3.11 para la suite actual; Go para el servicio; Rust estable/Cargo para el proxy. Las pruebas no usan credenciales ni servicios externos.
 
 ```bash
-curl -s http://127.0.0.1:8080/api/decision \\
-  -H 'Content-Type: application/json' \\
-  -d '{"frida_detected":true,"root_integrity_failed":false,"jwt_validation_failures":0,"grpc_tls_verified":true}'
+# desde la raíz
+PYTHONPATH="$PWD" uv run --python 3.11 --no-project \
+  --with-requirements requirements.txt python -m pytest -q
 
-curl -s http://127.0.0.1:8080/api/evidence/verify
+# servicio y pruebas Go
+(cd shadow-core-go && go test ./... && go build -o /tmp/shadow-core-go . && rm -f /tmp/shadow-core-go)
+
+# proxy Rust
+(cd shadow-core-rust && cargo test && cargo build)
 ```
 
-## Pruebas
+Las pruebas de FFT usan señales sintéticas; no equivalen a detección validada en dispositivos o tráfico real. Las pruebas PostgreSQL/Redis de integración son optativas: usan solo los servicios indicados por variables `SHADOW_TEST_POSTGRES_DSN` y `SHADOW_TEST_REDIS_URL`; apuntarlas únicamente a una base/instancia desechable. Se ejecutaron aquí con un clúster temporal aislado de PostgreSQL 15 y Redis 7, además del stack Compose local de PostgreSQL 16 y Redis 7 y una prueba end-to-end del servicio Go. No se usaron credenciales ni datos de producción.
+
+### Rebanada local con PostgreSQL y Redis
+
+Docker Compose es la vía reproducible prevista. Requiere Docker Engine y `docker compose` (o el ejecutable compatible `docker-compose`). En este entorno se validó con Docker Engine y `docker-compose`. El archivo expone puertos solo en localhost y usa volúmenes locales; es para desarrollo, no producción.
 
 ```bash
-PYTHONPATH=.:shadow-core-dashboard pytest -q shadow-core-tests shadow-core-dashboard/test_main.py
+cp .env.example .env
+# Cambia ambos valores locales antes de iniciar; no reutilices esos secretos fuera del entorno de prueba.
+docker compose -f compose.yaml up --build
 ```
 
-## Límites de la evidencia
+Compose inicia PostgreSQL, Redis y el servicio Go; la migración se aplica al arrancar Go. Para conectar una API Python ejecutada en el host, configura `SHADOW_GO_POLICY_URL=http://127.0.0.1:18081` y el mismo `SHADOW_GO_INTERNAL_TOKEN` de `.env`; la URL debe ser accesible solo por la API confiable. Se puede comprobar `/health` en `http://127.0.0.1:18081/health`. En esta validación local, PostgreSQL, Redis y Go quedaron saludables y `/health` respondió `status: ok`; Go pasó sus pruebas de integración con PostgreSQL/Redis. Esto no valida alta disponibilidad ni despliegue productivo.
 
-SHA-256 encadenado permite detectar cambios en entradas retenidas al verificar desde el inicio. No equivale a firma digital ni almacenamiento inmutable: alguien con acceso de escritura puede reescribir la base y recalcular la cadena, y la eliminación del final requiere un anclaje externo para detectarse. Para garantías mayores se necesitarían claves protegidas, control de acceso, anclaje externo y retención verificable.
+El dispatcher es al menos una vez: si Redis acepta un evento y el proceso cae antes de marcarlo publicado en PostgreSQL, puede volver a aparecer en el stream. El evento conserva su `event_id`; consumidores deben aplicar idempotencia/deduplicación. Si PostgreSQL no está disponible, Go no entrega decisiones sensibles; si Redis no está disponible, responde con error y el evento persiste en outbox para reintento. Reintentar una misma petición requiere repetir la misma cabecera `Idempotency-Key` UUID; usar una clave con otro cuerpo devuelve conflicto.
 
-## Seguridad y despliegue
+## Hoja de ruta
 
-Esto es un MVP para aprendizaje y pruebas locales, no un producto bancario ni una herramienta de pentest. No expongas el API sin autenticación, autorización, límites, gestión de secretos, logging, revisión de privacidad y pruebas independientes. La infraestructura Terraform existente no forma parte del flujo ejecutable del MVP: requiere validación y revisión de costos/permisos, y no debe aplicarse a producción tal cual.
+1. La migración, idempotencia, outbox, transporte y error cerrado pasaron pruebas locales con PostgreSQL/Redis; Compose también quedó levantado y probado en una máquina local. Ampliar pruebas de concurrencia, recuperación y reinicio de servicios.
+2. Revisar y ampliar contratos Rust/Go/Python y el modelo de amenazas; añadir pruebas de integración reproducibles que cubran el proxy Rust junto con el stack Compose.
+3. Construir cliente Android/Kotlin y validar atestación y señales en dispositivos/entorno de prueba autorizados.
+4. Evaluar FFT y modelos con corpus etiquetado, falsos positivos/negativos y revisión humana; entrenar/calibrar antes de usar IA para cualquier señal operacional. La política determinista sigue siendo autoridad.
+5. Revisar controles GCP/Kubernetes, IAM, KMS, Cloud Armor, VPC Service Controls y costos; desplegar solo tras revisión explícita y evidencia de staging.
+6. Auditoría externa y cualquier afirmación de cumplimiento solo con alcance y evidencia independientes.
+
+## Alcance y seguridad
+
+Los porcentajes, costos, comparativas comerciales y tendencias de la landing no se reproducen como resultados técnicos; la comparación del repositorio resume solo las descripciones públicas citadas y no es una evaluación independiente. Esta rama verifica comportamiento de código local con tests; no prueba ataques reales, eficacia contra Frida/Magisk, seguridad bancaria, resistencia frente a un atacante adaptativo ni cumplimiento certificado. No expongas los servicios ni uses datos/secretos reales. Revisa riesgos, privacidad, dependencias, gestión de claves, retención y recuperación antes de cualquier despliegue.

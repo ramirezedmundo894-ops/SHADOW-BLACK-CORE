@@ -42,3 +42,9 @@ pytest_cache/
 
 # Jupyter
 .ipynb_checkpoints/
+
+# Keep the local-only example; actual .env values remain ignored.
+!.env.example
+
+# Rust build artifacts
+/shadow-core-rust/target/
