@@ -1,1 +1,1 @@
-"""Deprecated path retained for compatibility; use shadow_core_ml.predict."""
+"""Compatibility placeholder; no production risk predictor is implemented."""

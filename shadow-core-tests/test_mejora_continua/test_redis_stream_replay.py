@@ -1,7 +1,7 @@
-def test_event_replay_preserves_order(shadow_client):
-    for i in range(100):
-        shadow_client.publish_event(f"evento_{i:03d}")
-    replay = shadow_client.replay_stream(from_id="0")
-    assert len(replay) == 100
-    assert replay[0]["id"] == "evento_000"
-    assert replay[-1]["id"] == "evento_099"
+def test_events_are_persisted_in_order(client):
+    for number in range(3):
+        response = client.post("/api/improvement-actions", json={"action": f"review {number}", "test": "audit-test"})
+        assert response.status_code == 201
+    entries = client.get("/api/evidence").json()["entries"]
+    assert len(entries) == 3
+    assert [entry["payload"]["action"] for entry in entries] == ["review 0", "review 1", "review 2"]

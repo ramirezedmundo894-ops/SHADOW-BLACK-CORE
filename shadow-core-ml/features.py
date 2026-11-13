@@ -1,1 +1,1 @@
-"""Deprecated path retained for compatibility; use the importable shadow_core_ml package."""
+"""Compatibility placeholder; no production ML model is implemented."""

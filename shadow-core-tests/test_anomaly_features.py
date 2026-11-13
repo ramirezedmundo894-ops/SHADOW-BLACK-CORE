@@ -1,14 +1,15 @@
-from shadow_core_ml.features import extract_features
+import sqlite3
+
+from shadow_core.evidence import EvidenceStore
 
 
-def test_feature_extraction_handles_empty_events():
-    result = extract_features([])
-    assert result["frida_hooks"] == 0
-    assert result["fft_beaconing"] == 0
-    assert result["event_rate"] == 0
-
-
-def test_feature_extraction_counts_event_types():
-    result = extract_features([{"type": "frida_hook", "ts": 1}, {"type": "hook", "ts": 2}, {"type": "exfil", "ts": 3}])
-    assert result["frida_hooks"] == 1
-    assert result["markov_anomaly"] == 1
+def test_evidence_chain_detects_payload_tampering(tmp_path):
+    store = EvidenceStore(tmp_path / "tamper.sqlite3")
+    store.append("test", {"value": 1})
+    store.append("test", {"value": 2})
+    assert store.verify()["valid"] is True
+    with sqlite3.connect(store.path) as db:
+        db.execute("UPDATE evidence SET payload=? WHERE id=1", ('{"value":2}',))
+    result = store.verify()
+    assert result["valid"] is False
+    assert result["first_invalid_id"] == 1

@@ -1,70 +1,50 @@
 # SHADOW BLACK CORE
 
-**SDK de ciberseguridad para aplicaciones móviles**
+Proyecto de ciberseguridad en desarrollo. Este repositorio contiene un MVP local ejecutable: una política de riesgo determinista, una API FastAPI, un panel web sencillo y un registro SQLite encadenado por hashes.
 
-> «Un sistema no se mide por cuánto dura de pie, sino por cuánto tarda en recuperarse.»
+## Funcionalidad implementada
 
-SHADOW BLACK CORE es un proyecto orientado a explorar controles de integridad, evaluación de riesgo y evidencia auditable para aplicaciones móviles. Este repositorio está en una etapa inicial: las ideas de arquitectura descritas aquí son una propuesta de diseño, no una afirmación de que los componentes, pruebas o servicios estén implementados o desplegados.
+- `POST /api/decision`: valida señales estructuradas, aplica reglas explícitas en `shadow_core/policy.py` y registra la decisión.
+- `GET /api/evidence`: lista evidencia persistida.
+- `GET /api/evidence/verify`: recalcula la cadena hash y detecta cambios en las entradas retenidas.
+- `POST /api/improvement-actions`: valida y registra una acción de mejora.
+- Panel web local para usar estos endpoints.
 
-## Estado del proyecto
+Las señales de integridad las aporta quien llama a la API. El proyecto **no** detecta Frida, Magisk/root ni verifica realmente TLS en el dispositivo; tampoco emite/revoca JWT, llama a Vertex AI, ni protege transacciones bancarias. Los umbrales son demostrativos y no están calibrados para producción.
 
-**En diseño / prototipo.** Antes de usarlo en producción, se deben implementar y revisar los componentes, validar la configuración de nube, ejecutar pruebas reproducibles y realizar una evaluación de seguridad independiente. No conectes este proyecto a sistemas bancarios ni a datos reales sin esas revisiones.
+## Ejecutar localmente
 
-## Objetivos
+Requiere Python 3.10+.
 
-- Evaluar señales de integridad y riesgo en una aplicación móvil.
-- Registrar decisiones de forma que puedan auditarse y verificarse.
-- Aplicar privilegio mínimo y separar los servicios por función.
-- Degradar de forma controlada ante fallos de servicios de modelos o dependencias.
-- Evitar presentar métricas, resultados de pruebas o ahorros como hechos hasta que tengan evidencia reproducible.
-
-## Arquitectura propuesta
-
-```mermaid
-flowchart TB
-    A[Aplicación móvil y SDK] --> B[API de evaluación]
-    B --> C[Evaluación de riesgo]
-    C --> D[Política de decisión]
-    D --> E[Respuesta a la aplicación]
-    D --> F[Registro de evidencia]
-    F --> G[Almacenamiento y auditoría]
-    G --> H[Dashboard de auditoría]
+```bash
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\\Scripts\\activate
+python -m pip install -r requirements.txt
+PYTHONPATH=.:shadow-core-dashboard uvicorn main:app --app-dir shadow-core-dashboard --host 127.0.0.1 --port 8080
 ```
 
-La infraestructura sugerida contempla servicios de Google Cloud como Cloud Run o GKE, Vertex AI, BigQuery, Cloud Storage, Cloud KMS, VPC Service Controls e IAM. La selección final debe basarse en requisitos, costos, disponibilidad regional y una revisión de seguridad. No se incluye aquí una configuración de despliegue validada.
+Abre `http://127.0.0.1:8080/`. El ejemplo solo escucha en localhost. SQLite se guarda por defecto en `./data/shadow-core.sqlite3`; `SHADOW_CORE_DB` permite elegir otra ruta. No uses SQLite local como almacenamiento compartido en varias réplicas ni en un contenedor efímero.
 
-## Áreas de investigación
+## API
 
-- **Integridad de la aplicación:** señales de manipulación y verificación de artefactos.
-- **Análisis de riesgo:** evaluación de eventos y secuencias. FFT, modelos probabilísticos, cadenas de Markov y detección de drift son opciones por evaluar, no capacidades confirmadas.
-- **Políticas de sesión:** respuestas graduadas según el riesgo, definidas y probadas con requisitos del producto.
-- **Evidencia auditable:** hashes y registros verificables. Un hash por sí solo no demuestra el origen, integridad de todo el flujo ni resistencia a manipulación; esos aspectos requieren diseño adicional y controles de claves.
-- **Pruebas:** pruebas unitarias, integración y pruebas de seguridad en entornos autorizados y aislados.
+```bash
+curl -s http://127.0.0.1:8080/api/decision \\
+  -H 'Content-Type: application/json' \\
+  -d '{"frida_detected":true,"root_integrity_failed":false,"jwt_validation_failures":0,"grpc_tls_verified":true}'
 
-## Seguridad y uso responsable
+curl -s http://127.0.0.1:8080/api/evidence/verify
+```
 
-Las pruebas de seguridad deben ejecutarse únicamente contra entornos propios o para los que exista autorización explícita. Los ejemplos de ataques o simulaciones no deben dirigirse a aplicaciones, usuarios o infraestructura de terceros.
+## Pruebas
 
-Antes de cualquier despliegue se requiere, como mínimo:
+```bash
+PYTHONPATH=.:shadow-core-dashboard pytest -q shadow-core-tests shadow-core-dashboard/test_main.py
+```
 
-1. Revisar permisos IAM, redes, exposición pública y gestión de secretos.
-2. Validar Terraform con `terraform fmt`, `terraform validate` y un `terraform plan` revisado por una persona autorizada.
-3. Probar los controles en un entorno no productivo y confirmar los modos de fallo y recuperación.
-4. Verificar que los datos almacenados no incluyan información personal o credenciales innecesarias.
-5. Revisar dependencias, imágenes de contenedor, registros y políticas de retención.
+## Límites de la evidencia
 
-No ejecutes `terraform apply` ni publiques credenciales basándote únicamente en este documento.
+SHA-256 encadenado permite detectar cambios en entradas retenidas al verificar desde el inicio. No equivale a firma digital ni almacenamiento inmutable: alguien con acceso de escritura puede reescribir la base y recalcular la cadena, y la eliminación del final requiere un anclaje externo para detectarse. Para garantías mayores se necesitarían claves protegidas, control de acceso, anclaje externo y retención verificable.
 
-## Métricas y afirmaciones
+## Seguridad y despliegue
 
-No se publican porcentajes de cobertura o detección, tiempos de respuesta, costos de bypass, comparaciones con otros productos ni resultados de pruebas como resultados del proyecto mientras no exista evidencia verificable y reproducible que los respalde. Los valores hipotéticos o demostrativos deben identificarse claramente como tales.
-
-## Desarrollo
-
-El repositorio todavía no define un proceso de instalación o ejecución estable. Cuando se incorporen componentes ejecutables, esta sección deberá documentar versiones compatibles, configuración local, comandos de pruebas y limitaciones conocidas.
-
-## Autoría y licencia
-
-Proyecto asociado a **Edmundo Ramírez Jiménez**.
-
-La licencia configurada para este repositorio es **GNU GPL v3.0**. Por lo tanto, el código distribuido debe respetar los términos de esa licencia; no se debe describir el proyecto como “Proprietary” salvo que la licencia del repositorio cambie de forma válida.
+Esto es un MVP para aprendizaje y pruebas locales, no un producto bancario ni una herramienta de pentest. No expongas el API sin autenticación, autorización, límites, gestión de secretos, logging, revisión de privacidad y pruebas independientes. La infraestructura Terraform existente no forma parte del flujo ejecutable del MVP: requiere validación y revisión de costos/permisos, y no debe aplicarse a producción tal cual.

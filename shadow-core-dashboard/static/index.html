@@ -1,21 +1,25 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>SHADOW CORE · Demo de auditoría</title>
-  <style>body{background:#000;color:#fff;font-family:monospace;padding:1.5rem}.card{border:1px solid #444;padding:1rem;margin:.5rem 0}input{display:block;margin:.5rem 0;width:min(100%,36rem);padding:.5rem}</style>
+  <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SHADOW CORE · Panel local</title>
+  <style>body{background:#101318;color:#eee;font:16px system-ui;max-width:900px;margin:2rem auto;padding:0 1rem}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#1b2028;padding:1rem;border-radius:8px}label{display:block;margin:.7rem 0}button{padding:.6rem 1rem}input[type=number]{width:5rem}</style>
 </head>
 <body>
-  <h1>SHADOW CORE · Demo de auditoría</h1>
-  <p>Este prototipo no contiene telemetría de producción ni resultados de pruebas verificados.</p>
-  <div id="stats" class="card">Cargando…</div>
-  <h2>Resultados de pruebas</h2><div id="tests"></div>
-  <h2>Datos económicos</h2><div id="economia" class="card"></div>
-  <h2>Registrar acción (demo, no persistida)</h2>
-  <input id="accion" maxlength="500" placeholder="Acción de mejora" />
-  <input id="test_rel" maxlength="200" placeholder="Prueba relacionada" />
-  <button id="save">Enviar</button>
+  <h1>SHADOW CORE · Panel de evaluación</h1>
+  <p>MVP local. Las señales las proporciona el cliente; el servicio no detecta Frida/root ni verifica TLS en el dispositivo.</p>
+  <h2>Evaluar señales reportadas</h2>
+  <form id="decision-form">
+    <label><input type="checkbox" name="frida_detected"> Señal de Frida reportada</label>
+    <label><input type="checkbox" name="root_integrity_failed"> Fallo de integridad reportado</label>
+    <label>Fallos JWT <input type="number" name="jwt_validation_failures" min="0" max="100" value="0"></label>
+    <label><input type="checkbox" name="grpc_tls_verified" checked> TLS reportado como verificado</label>
+    <button>Evaluar y registrar</button>
+  </form>
+  <pre id="decision">Sin evaluación todavía.</pre>
+  <h2>Registro de evidencia</h2><button id="refresh">Actualizar</button> <button id="verify">Verificar hashes</button><pre id="audit">Cargando…</pre>
+  <h2>Acción de mejora</h2>
+  <form id="action-form"><label>Acción <input name="action" maxlength="500" required></label><label>Prueba <input name="test" maxlength="200" required></label><button>Guardar</button></form><pre id="action-result"></pre>
   <script src="/app.js" defer></script>
 </body>
 </html>

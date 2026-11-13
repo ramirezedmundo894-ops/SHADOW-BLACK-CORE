@@ -1,1 +1,1 @@
-"""Deprecated path retained for compatibility; use shadow_core_ml.pipeline."""
+"""Automated MLOps retraining/deployment is intentionally not implemented."""

@@ -1,18 +1,10 @@
-import hashlib
-
+from fastapi.testclient import TestClient
 import pytest
 
-
-@pytest.fixture
-def evidencia():
-    def hash_evidence(data: str) -> str:
-        return hashlib.sha256(data.encode("utf-8")).hexdigest()
-
-    return hash_evidence
+from shadow_core.api import create_app
+from shadow_core.evidence import EvidenceStore
 
 
 @pytest.fixture
-def shadow_client():
-    from shadow_core import ShadowCoreClient
-
-    return ShadowCoreClient(env="test")
+def client(tmp_path):
+    return TestClient(create_app(EvidenceStore(tmp_path / "test.sqlite3")))

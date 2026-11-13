@@ -1,1 +1,1 @@
-"""Deprecated path retained for compatibility; use shadow_core_ml.train."""
+"""Compatibility placeholder; no production ML training is implemented."""

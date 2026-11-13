@@ -1,1 +1,1 @@
-"""Deprecated path retained for compatibility; use shadow_core_ml.deploy_vertex."""
+"""Cloud model deployment is not implemented in this local MVP."""
