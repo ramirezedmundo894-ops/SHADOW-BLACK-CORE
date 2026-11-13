@@ -1,6 +1,9 @@
 const $ = (id) => document.getElementById(id);
+let accessToken = '';
 async function request(path, options = {}) {
-  const response = await fetch(path, options);
+  const headers = new Headers(options.headers || {});
+  if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`);
+  const response = await fetch(path, {...options, headers});
   const body = await response.json();
   if (!response.ok) throw new Error(body.detail || `HTTP ${response.status}`);
   return body;
@@ -41,4 +44,13 @@ $('action-form').addEventListener('submit', async (event) => {
     event.currentTarget.reset(); await refreshAudit();
   } catch (error) { $('action-result').textContent = error.message; }
 });
-refreshAudit().catch((error) => $('audit').textContent = error.message);
+$('use-token').addEventListener('click', () => {
+  accessToken = $('access-token-input').value.trim();
+  $('access-token-input').value = '';
+  refreshAudit().catch((error) => $('audit').textContent = error.message);
+});
+$('clear-token').addEventListener('click', () => {
+  accessToken = '';
+  $('audit').textContent = 'Token olvidado; ingresa un access JWT para usar el panel.';
+});
+$('audit').textContent = 'Ingresa un access JWT para consultar evidencia.';
