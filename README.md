@@ -114,9 +114,9 @@ El dispatcher es al menos una vez: si Redis acepta un evento y el proceso cae an
 ## Hoja de ruta
 
 1. La integración local Rust → Python/FFT → Go → PostgreSQL/outbox → Redis Streams pasó pruebas sintéticas de extremo a extremo, reinicio y carga acotada. El consumer group Redis ya integra el inbox transaccional y se verificó en servicios desechables; siguen pendientes carga sostenida, alta disponibilidad, recuperación ante pérdida física y efectos externos idempotentes.
-2. Revisar y ampliar contratos Rust/Go/Python y el modelo de amenazas; agregar TLS/mTLS y límites distribuidos antes de cualquier exposición externa.
+2. Revisar y ampliar contratos Rust/Go/Python y el modelo de amenazas; agregar TLS/mTLS y límites distribuidos antes de cualquier exposición externa. El plan de saltos de confianza, red y pruebas está en [`docs/evaluation-and-staging-readiness.md`](docs/evaluation-and-staging-readiness.md).
 3. Construir cliente Android/Kotlin y validar atestación y señales en dispositivos/entorno de prueba autorizados.
-4. El evaluador offline `shadow_core.model_evaluation` ya calcula métricas para probabilidades de un modelo candidato; falta un corpus etiquetado revisado y evaluación humana. Entrenar/calibrar antes de usar IA para cualquier señal operacional; la política determinista sigue siendo autoridad.
+4. El evaluador offline `shadow_core.model_evaluation` ya calcula métricas para probabilidades de un modelo candidato; faltan tres evaluaciones separadas (transacción no autorizada, toma de cuenta y abuso de API), sus fuentes/ventanas de adjudicación, un candidato probabilístico apropiado y un corpus autorizado y revisado. La propuesta de etiqueta y sus puertas están en [`docs/evaluation-and-staging-readiness.md`](docs/evaluation-and-staging-readiness.md). Entrenar/calibrar antes de usar IA para cualquier señal operacional; la política determinista sigue siendo autoridad.
 5. Revisar controles GCP/Kubernetes, IAM, KMS, Cloud Armor, VPC Service Controls y costos; desplegar solo tras revisión explícita y evidencia de staging.
 6. Auditoría externa y cualquier afirmación de cumplimiento solo con alcance y evidencia independientes.
 
