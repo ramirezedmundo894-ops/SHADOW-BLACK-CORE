@@ -177,3 +177,116 @@ func TestMissingPersistenceFailsClosed(t *testing.T) {
 		t.Fatalf("expected 503, got %d", code)
 	}
 }
+
+type failingRepository struct {
+	*memoryRepository
+	recordErr error
+	markErr   error
+}
+
+func (f *failingRepository) Record(ctx context.Context, req DecisionRequest, decision Decision) (StoredDecision, error) {
+	if f.recordErr != nil {
+		return StoredDecision{}, f.recordErr
+	}
+	return f.memoryRepository.Record(ctx, req, decision)
+}
+
+func (f *failingRepository) MarkPublished(ctx context.Context, id string) error {
+	if f.markErr != nil {
+		return f.markErr
+	}
+	return f.memoryRepository.MarkPublished(ctx, id)
+}
+
+func TestOutboxRetryAfterPublisherFailureSurvivesDispatcherRestart(t *testing.T) {
+	repo := &failingRepository{memoryRepository: newMemoryRepository()}
+	payload := validPayload("")
+	var input DecisionRequest
+	if err := json.Unmarshal(payload, &input); err != nil {
+		t.Fatal(err)
+	}
+	signals, err := input.Signals.value()
+	if err != nil {
+		t.Fatal(err)
+	}
+	decision, err := evaluate(signals)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, err := repo.Record(context.Background(), input, decision)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	unavailable := &memoryPublisher{fail: true}
+	if err := (&OutboxDispatcher{Store: repo, Publisher: unavailable}).Flush(context.Background()); err == nil {
+		t.Fatal("expected publisher failure")
+	}
+	if got := len(repo.pending); got != 1 {
+		t.Fatalf("publisher failure must leave event pending, got %d", got)
+	}
+
+	// A new dispatcher models a process restart. The repository (durable outbox) is retained.
+	recovered := &memoryPublisher{}
+	if err := (&OutboxDispatcher{Store: repo, Publisher: recovered}).Flush(context.Background()); err != nil {
+		t.Fatalf("restart retry failed: %v", err)
+	}
+	if got := len(recovered.events); got != 1 || recovered.events[0].EventID != stored.Event.EventID {
+		t.Fatalf("restart did not publish the original stable event once: %+v", recovered.events)
+	}
+	if got := len(repo.pending); got != 0 {
+		t.Fatalf("published event still pending after successful mark: %d", got)
+	}
+}
+
+func TestOutboxAtLeastOnceCanDuplicateAfterPublishBeforeMark(t *testing.T) {
+	repo := &failingRepository{memoryRepository: newMemoryRepository(), markErr: errors.New("database unavailable after publish")}
+	payload := validPayload("")
+	var input DecisionRequest
+	if err := json.Unmarshal(payload, &input); err != nil {
+		t.Fatal(err)
+	}
+	signals, err := input.Signals.value()
+	if err != nil {
+		t.Fatal(err)
+	}
+	decision, err := evaluate(signals)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, err := repo.Record(context.Background(), input, decision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publisher := &memoryPublisher{}
+	if err := (&OutboxDispatcher{Store: repo, Publisher: publisher}).Flush(context.Background()); err == nil {
+		t.Fatal("expected mark-published failure")
+	}
+	if len(publisher.events) != 1 || len(repo.pending) != 1 {
+		t.Fatalf("expected published-but-still-pending event; published=%d pending=%d", len(publisher.events), len(repo.pending))
+	}
+
+	// Once PostgreSQL is writable again the dispatcher republishes; consumers must dedupe by event_id.
+	repo.markErr = nil
+	if err := (&OutboxDispatcher{Store: repo, Publisher: publisher}).Flush(context.Background()); err != nil {
+		t.Fatalf("retry after mark failure: %v", err)
+	}
+	if len(publisher.events) != 2 || publisher.events[0].EventID != stored.Event.EventID || publisher.events[1].EventID != stored.Event.EventID {
+		t.Fatalf("expected at-least-once duplicate with stable event ID %q, got %+v", stored.Event.EventID, publisher.events)
+	}
+	if len(repo.pending) != 0 {
+		t.Fatalf("event remains pending after recovered mark: %+v", repo.pending)
+	}
+}
+
+func TestDecisionPersistenceFailureReturns503WithoutPublishing(t *testing.T) {
+	repo := &failingRepository{memoryRepository: newMemoryRepository(), recordErr: errors.New("postgres unavailable")}
+	publisher := &memoryPublisher{}
+	response := request(decisionHandler(testSecret, repo, publisher), validPayload(""), testSecret)
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 for persistence failure, got %d", response.Code)
+	}
+	if len(publisher.events) != 0 {
+		t.Fatalf("published without durable decision: %+v", publisher.events)
+	}
+}

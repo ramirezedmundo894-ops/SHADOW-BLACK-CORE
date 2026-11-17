@@ -1,0 +1,4 @@
+# Exclude owner-local artifacts from the Go image build context.
+/shadow-core-go
+*.sqlite3
+.env

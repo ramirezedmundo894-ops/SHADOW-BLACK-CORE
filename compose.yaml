@@ -38,6 +38,7 @@ services:
       SHADOW_POSTGRES_DSN: postgres://shadow_core:${SHADOW_POSTGRES_PASSWORD}@postgres:5432/shadow_core?sslmode=disable
       SHADOW_REDIS_URL: redis://redis:6379/0
       SHADOW_REDIS_STREAM: shadow:decision-events
+      SHADOW_REDIS_CONSUMER_GROUP: shadow-decision-projection-v1
     ports:
       - "127.0.0.1:18081:8081"
     depends_on:
@@ -51,6 +52,53 @@ services:
       timeout: 3s
       retries: 5
 
+  python-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.python
+    environment:
+      SHADOW_CORE_DB: /var/lib/shadow-core/api.sqlite3
+      SHADOW_CORE_JWT_SECRET: ${SHADOW_CORE_JWT_SECRET:?set SHADOW_CORE_JWT_SECRET in .env}
+      SHADOW_CORE_ISSUER_TOKEN: ${SHADOW_CORE_ISSUER_TOKEN:?set SHADOW_CORE_ISSUER_TOKEN in .env}
+      SHADOW_GO_POLICY_URL: http://go-policy:8081
+      SHADOW_GO_INTERNAL_TOKEN: ${SHADOW_GO_INTERNAL_TOKEN:?set SHADOW_GO_INTERNAL_TOKEN in .env}
+    volumes:
+      - shadow-api-data:/var/lib/shadow-core
+    depends_on:
+      go-policy:
+        condition: service_healthy
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  rust-proxy:
+    build:
+      context: .
+      dockerfile: shadow-core-rust/Dockerfile
+    environment:
+      SHADOW_PROXY_ADDR: "0.0.0.0:8080"
+      SHADOW_PYTHON_UPSTREAM: http://python-api:8000
+      SHADOW_GO_UPSTREAM: http://go-policy:8081
+      SHADOW_GO_PROXY_TOKEN: ${SHADOW_GO_PROXY_TOKEN:?set SHADOW_GO_PROXY_TOKEN in .env}
+      SHADOW_GO_INTERNAL_TOKEN: ${SHADOW_GO_INTERNAL_TOKEN:?set SHADOW_GO_INTERNAL_TOKEN in .env}
+      SHADOW_RATE_LIMIT_REQUESTS: "120"
+      SHADOW_RATE_LIMIT_WINDOW_SECONDS: "60"
+    ports:
+      - "127.0.0.1:18080:8080"
+    depends_on:
+      python-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/health >/dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
 volumes:
   shadow-postgres-data:
   shadow-redis-data:
+  shadow-api-data:

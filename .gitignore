@@ -36,7 +36,7 @@ Thumbs.db
 crash.log
 
 # Test reports
-pytest_cache/
+.pytest_cache/
 .htmlcov/
 *.html
 
@@ -48,3 +48,7 @@ pytest_cache/
 
 # Rust build artifacts
 /shadow-core-rust/target/
+
+# Local-only database state and compiled Go binary
+/data/
+/shadow-core-go/shadow-core-go

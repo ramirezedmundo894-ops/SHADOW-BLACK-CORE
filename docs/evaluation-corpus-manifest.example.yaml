@@ -1,0 +1,22 @@
+# Copiar y completar en una ubicación protegida; no publicar datos ni secretos.
+# Los valores son marcadores, no hechos ni autorización para recolectar datos.
+protocol_version: 1
+purpose: "<objetivo autorizado>"
+scope: "<sistema, población y límites>"
+authorization_reference: "<referencia interna; no incluir documentos personales>"
+source_period: "<inicio/fin y zona horaria>"
+label_definition: "<evento positivo, evidencia y ventana de observación>"
+label_review: "<método, revisores por rol, adjudicación y acuerdo>"
+candidate_version: "<versión identificable del candidato>"
+score_semantics: "<qué evento estima la probabilidad>"
+preprocessing_version: "<versión reproducible>"
+threshold: "<umbral predefinido para este análisis>"
+partition_method: "<temporal o por entidad/evento; cómo evita fuga>"
+final_holdout_locked_before_analysis: "<yes/no; explain>"
+row_count: "<número agregado>"
+class_counts: "<positivos/negativos agregados>"
+input_sha256: "<hash de la exportación mínima aprobada>"
+evaluator_version: "<commit o release>"
+reviewed_by_role: "<rol de segunda revisión>"
+retention_and_deletion: "<plazo y responsable>"
+limitations: "<sesgos, dependencia, muestras escasas u otros límites>"

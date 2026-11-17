@@ -23,5 +23,3 @@ CREATE TABLE IF NOT EXISTS decision_outbox (
 
 CREATE INDEX IF NOT EXISTS decision_outbox_pending_idx
     ON decision_outbox (created_at) WHERE published_at IS NULL;
-
-INSERT INTO schema_migrations (version) VALUES ('001_decision_outbox') ON CONFLICT (version) DO NOTHING;

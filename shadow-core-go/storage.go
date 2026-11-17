@@ -67,27 +67,60 @@ func openPostgres(ctx context.Context, dsn string) (*sql.DB, error) {
 }
 
 func migratePostgres(ctx context.Context, db *sql.DB) error {
-	migration, err := migrationFiles.ReadFile("migrations/001_decision_outbox.sql")
-	if err != nil {
-		return err
-	}
+	// Serialize the bootstrap as well as versioned migrations. The ledger must
+	// not be created concurrently by two replicas on a fresh database.
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	// This migration intentionally contains plain DDL/DML statements (no procedural
-	// blocks), so split it to avoid pgx prepared-statement multi-command limitations.
-	for _, statement := range strings.Split(string(migration), ";") {
-		statement = strings.TrimSpace(statement)
-		if statement == "" {
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(78234719504001)`); err != nil {
+		return fmt.Errorf("lock schema migrations: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (
+		version TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+	)`); err != nil {
+		return fmt.Errorf("create migration ledger: %w", err)
+	}
+	entries, err := migrationFiles.ReadDir("migrations")
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries { // embed.FS returns directory entries sorted by name.
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".sql") {
 			continue
 		}
-		if _, err := tx.ExecContext(ctx, statement); err != nil {
+		version := strings.TrimSuffix(entry.Name(), ".sql")
+		migration, err := migrationFiles.ReadFile("migrations/" + entry.Name())
+		if err != nil {
 			return err
 		}
+		var applied bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=$1)`, version).Scan(&applied); err != nil {
+			return fmt.Errorf("check migration %s: %w", version, err)
+		}
+		if applied {
+			continue
+		}
+		// Migrations contain plain SQL statements, so split them to avoid pgx's
+		// prepared-statement restrictions on multi-command SQL strings.
+		for _, statement := range strings.Split(string(migration), ";") {
+			statement = strings.TrimSpace(statement)
+			if statement == "" {
+				continue
+			}
+			if _, err := tx.ExecContext(ctx, statement); err != nil {
+				return fmt.Errorf("apply migration %s: %w", version, err)
+			}
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO schema_migrations(version) VALUES($1)`, version); err != nil {
+			return fmt.Errorf("record migration %s: %w", version, err)
+		}
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit migrations: %w", err)
+	}
+	return nil
 }
 
 type PostgresDecisionStore struct{ DB *sql.DB }
@@ -108,7 +141,9 @@ func (s PostgresDecisionStore) Record(ctx context.Context, req DecisionRequest, 
 		return StoredDecision{}, err
 	}
 
-	tx, err := s.DB.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
+	// The unique request_id index serializes competing inserts; READ COMMITTED
+	// then exposes the winning row to the follow-up read after ON CONFLICT waits.
+	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return StoredDecision{}, err
 	}

@@ -98,7 +98,9 @@ def test_configured_go_policy_fails_closed_instead_of_using_python_fallback(tmp_
     assert client.get("/api/evidence", headers=headers).json()["entries"] == []
 
 
-def test_go_policy_requires_internal_token_when_configured(tmp_path):
+def test_go_policy_requires_internal_token_when_configured(tmp_path, monkeypatch):
+    # A developer .env may configure this token; make the negative case deterministic.
+    monkeypatch.delenv("SHADOW_GO_INTERNAL_TOKEN", raising=False)
     with pytest.raises(ValueError, match="SHADOW_GO_INTERNAL_TOKEN"):
         create_app(EvidenceStore(tmp_path / "misconfigured.sqlite3"),
                    jwt_secret="test-only-signing-secret-with-32-bytes-minimum",
