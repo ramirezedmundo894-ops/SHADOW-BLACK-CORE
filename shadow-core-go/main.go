@@ -222,18 +222,40 @@ func main() {
 	}
 	redisClient := redis.NewClient(options)
 	defer redisClient.Close()
-	pingCtx, pingCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer pingCancel()
-	if err := redisClient.Ping(pingCtx).Err(); err != nil {
-		log.Fatalf("Redis startup failed: %v", err)
-	}
+	// Redis is a delivery transport, not the source of truth. Let the API start
+	// when Redis is temporarily unavailable; PostgreSQL retains pending outbox
+	// events and the dispatcher retries them when Redis becomes reachable.
 	store := PostgresDecisionStore{DB: db}
-	publisher := RedisStreamPublisher{Client: redisClient, Stream: os.Getenv("SHADOW_REDIS_STREAM")}
+	stream := strings.TrimSpace(os.Getenv("SHADOW_REDIS_STREAM"))
+	if stream == "" {
+		stream = defaultDecisionEventStream
+	}
+	publisher := RedisStreamPublisher{Client: redisClient, Stream: stream}
 	dispatcher := &OutboxDispatcher{Store: store, Publisher: publisher}
 	handler := decisionHandlerWithDispatcher(secret, dispatcher)
 	workerCtx, workerCancel := context.WithCancel(context.Background())
 	defer workerCancel()
 	go runOutboxWorker(workerCtx, dispatcher)
+
+	// The consumer is opt-in so existing deployments do not silently begin
+	// running a downstream projection when they only need the policy API.
+	if group := strings.TrimSpace(os.Getenv("SHADOW_REDIS_CONSUMER_GROUP")); group != "" {
+		consumerName := strings.TrimSpace(os.Getenv("SHADOW_REDIS_CONSUMER_NAME"))
+		if consumerName == "" {
+			hostname, err := os.Hostname()
+			if err != nil || strings.TrimSpace(hostname) == "" {
+				hostname = "go-policy"
+			}
+			consumerName = fmt.Sprintf("%s-%d", hostname, os.Getpid())
+		}
+		consumer := &DecisionEventStreamWorker{
+			Client: redisClient,
+			Inbox:  DecisionEventConsumer{DB: db, Name: group},
+			Stream: stream, Group: group, ConsumerName: consumerName,
+			Apply: saveDecisionEventProjection(group),
+		}
+		go runDecisionEventWorker(workerCtx, consumer)
+	}
 	server := &http.Server{Addr: addr, Handler: handler, ReadHeaderTimeout: 3 * time.Second,
 		ReadTimeout: 5 * time.Second, WriteTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second}
 	fmt.Printf("shadow-core-go-policy listening on %s\n", addr)
